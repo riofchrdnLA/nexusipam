@@ -4,7 +4,7 @@ import { Subnet, IPRecord, IPStatus, User } from '../types';
 import { IPGrid } from './IPGrid';
 import { generateMockSubnet, isValidCIDR } from '../services/ipUtils';
 import { StorageService } from '../services/storage';
-import { Plus, Search, Map, List, Save, Trash2, X, Lock, Eye, Loader2 } from 'lucide-react';
+import { Plus, Search, Map, List, Save, Trash2, X, Lock, Eye, Loader2, Database, Network } from 'lucide-react';
 
 interface SubnetManagerProps {
   subnets: Subnet[];
@@ -20,6 +20,15 @@ export const SubnetManager: React.FC<SubnetManagerProps> = ({ subnets, setSubnet
   const [selectedIP, setSelectedIP] = useState<IPRecord | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+
+  // Sync selected ID if subnets change (e.g. from realtime update)
+  React.useEffect(() => {
+    if (!selectedSubnetId && subnets.length > 0) {
+        setSelectedSubnetId(subnets[0].id);
+    } else if (selectedSubnetId && !subnets.find(s => s.id === selectedSubnetId) && subnets.length > 0) {
+        setSelectedSubnetId(subnets[0].id);
+    }
+  }, [subnets, selectedSubnetId]);
 
   const activeSubnet = subnets.find(s => s.id === selectedSubnetId);
   const isAdmin = currentUser.role === 'admin';
@@ -67,6 +76,7 @@ export const SubnetManager: React.FC<SubnetManagerProps> = ({ subnets, setSubnet
     // Save to DB
     await StorageService.createSubnet(newSubnet);
 
+    // Optimistic update - Realtime will confirm later
     setSubnets([...subnets, newSubnet]);
     setShowAddModal(false);
     setNewSubnetData({ name: '', cidr: '', vlan: '' });
@@ -94,6 +104,7 @@ export const SubnetManager: React.FC<SubnetManagerProps> = ({ subnets, setSubnet
     // Save to DB
     await StorageService.updateIP(activeSubnet.id, updatedRecord);
 
+    // Optimistic update
     setSubnets(subnets.map(s => s.id === activeSubnet.id ? updatedSubnet : s));
     setSelectedIP(null);
     setIsSaving(false);
@@ -102,6 +113,7 @@ export const SubnetManager: React.FC<SubnetManagerProps> = ({ subnets, setSubnet
   const deleteSubnet = async (id: string) => {
       if(confirm('Are you sure you want to delete this subnet?')) {
           await StorageService.deleteSubnet(id);
+          // Optimistic
           setSubnets(subnets.filter(s => s.id !== id));
           if (selectedSubnetId === id) setSelectedSubnetId(null);
       }
@@ -111,6 +123,84 @@ export const SubnetManager: React.FC<SubnetManagerProps> = ({ subnets, setSubnet
       if (isAdmin) return true;
       return ip.status === IPStatus.AVAILABLE;
   };
+
+  // EMPTY STATE (No Subnets in Database)
+  if (subnets.length === 0) {
+      return (
+          <div className="flex flex-col items-center justify-center h-full text-center space-y-6">
+              <div className="bg-slate-900 p-8 rounded-full border border-slate-800 shadow-[0_0_50px_rgba(34,211,238,0.1)]">
+                  <Network className="text-slate-600" size={64} />
+              </div>
+              <div>
+                  <h2 className="text-2xl font-bold text-white">Database is Empty</h2>
+                  <p className="text-slate-400 mt-2 max-w-md">There are no subnets configured in the Nexus IPAM database yet.</p>
+              </div>
+              
+              {isAdmin ? (
+                  <button 
+                      onClick={() => setShowAddModal(true)}
+                      className="bg-cyan-600 hover:bg-cyan-500 text-white px-6 py-3 rounded-lg flex items-center space-x-2 font-medium transition-all hover:scale-105"
+                  >
+                      <Plus size={20} /> <span>Create First Subnet</span>
+                  </button>
+              ) : (
+                  <div className="bg-slate-800 px-4 py-2 rounded text-slate-400 text-sm">
+                      Waiting for Administrator to configure networks...
+                  </div>
+              )}
+
+              {/* Add Subnet Modal (Copy for Empty State) */}
+              {showAddModal && isAdmin && (
+                <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 text-left">
+                    <div className="bg-slate-900 border border-slate-700 p-6 rounded-lg w-96 shadow-2xl">
+                        <h3 className="text-xl font-bold mb-4 text-white">New Subnet</h3>
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-sm text-slate-400 mb-1">Name</label>
+                                <input 
+                                    type="text" 
+                                    className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-white outline-none focus:border-cyan-500"
+                                    placeholder="e.g. Server Farm A"
+                                    value={newSubnetData.name}
+                                    onChange={(e) => setNewSubnetData({...newSubnetData, name: e.target.value})}
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm text-slate-400 mb-1">CIDR (IPv4)</label>
+                                <input 
+                                    type="text" 
+                                    className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-white outline-none focus:border-cyan-500"
+                                    placeholder="e.g. 192.168.10.0/24"
+                                    value={newSubnetData.cidr}
+                                    onChange={(e) => setNewSubnetData({...newSubnetData, cidr: e.target.value})}
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm text-slate-400 mb-1">VLAN ID (Optional)</label>
+                                <input 
+                                    type="number" 
+                                    className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-white outline-none focus:border-cyan-500"
+                                    value={newSubnetData.vlan}
+                                    onChange={(e) => setNewSubnetData({...newSubnetData, vlan: e.target.value})}
+                                />
+                            </div>
+                        </div>
+                        <div className="mt-6 flex justify-end space-x-3">
+                            <button onClick={() => setShowAddModal(false)} className="px-4 py-2 text-slate-400 hover:text-white">Cancel</button>
+                            <button 
+                                onClick={handleCreateSubnet} 
+                                disabled={isSaving}
+                                className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded flex items-center"
+                            >
+                                {isSaving ? <Loader2 className="animate-spin" size={16} /> : 'Create'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+              )}
+          </div>
+      );
+  }
 
   return (
     <div className="flex flex-col h-full space-y-4">
@@ -125,7 +215,6 @@ export const SubnetManager: React.FC<SubnetManagerProps> = ({ subnets, setSubnet
                     setSearchQuery('');
                 }}
             >
-                <option value="" disabled>Select Subnet...</option>
                 {subnets.map(s => (
                     <option key={s.id} value={s.id}>{s.name} ({s.cidr})</option>
                 ))}
