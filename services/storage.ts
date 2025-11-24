@@ -105,9 +105,9 @@ export const StorageService = {
         .order('created_at', { ascending: true });
 
       if (subnetError) throw subnetError;
-      if (!subnetsData) return [];
+      if (!subnetsData) return []; // Return empty if no subnets, DO NOT use mock data here
 
-      // 2. Fetch All IPs (Optimization: could be done per subnet, but for IPAM size, one query is usually fine)
+      // 2. Fetch All IPs
       const { data: ipData, error: ipError } = await supabase
         .from('ip_records')
         .select('*');
@@ -140,12 +140,41 @@ export const StorageService = {
         };
       });
 
-      return result.length > 0 ? result : this.getMockData();
+      return result; // Pure DB result
 
     } catch (e) {
       console.error("Supabase Fetch Error:", e);
-      return this.getMockData();
+      // Only fallback to mock data if there is a CRITICAL connection error, not just empty data
+      return [];
     }
+  },
+
+  /**
+   * Subscribe to Realtime changes on Subnets and IP Records
+   */
+  subscribeToRealtime(callback: () => void) {
+      if (!isSupabaseConfigured) return { unsubscribe: () => {} };
+
+      const channel = supabase.channel('realtime-nexus-ipam')
+          .on(
+              'postgres_changes',
+              { event: '*', schema: 'public', table: 'subnets' },
+              (payload) => {
+                  console.log('Subnet Change:', payload);
+                  callback();
+              }
+          )
+          .on(
+              'postgres_changes',
+              { event: '*', schema: 'public', table: 'ip_records' },
+              (payload) => {
+                  console.log('IP Change:', payload);
+                  callback();
+              }
+          )
+          .subscribe();
+
+      return channel;
   },
 
   async createSubnet(subnet: Subnet): Promise<void> {
@@ -184,7 +213,6 @@ export const StorageService = {
 
     } catch (e) {
       console.error("Supabase Create Error:", e);
-      // throw e; // Jangan throw error agar UI tidak crash, cukup log saja
     }
   },
 
@@ -212,18 +240,14 @@ export const StorageService = {
   async deleteSubnet(subnetId: string): Promise<void> {
       if (!isSupabaseConfigured) return;
       
-      // Cascading delete is handled by Postgres Schema (ON DELETE CASCADE)
       const { error } = await supabase.from('subnets').delete().eq('id', subnetId);
       if (error) console.error("Delete Error:", error);
   },
 
-  // Mock Data fallback
   getMockData(): Subnet[] {
-      const officeSubnet = generateMockSubnet('192.168.1.0/24', 'HQ - Floor 1');
-      const serverSubnet = generateMockSubnet('10.0.50.0/24', 'Data Center A');
+      const officeSubnet = generateMockSubnet('192.168.1.0/24', 'HQ - Floor 1 (MOCK)');
       return [
-        { id: '1', name: 'HQ - Floor 1', cidr: '192.168.1.0/24', gateway: '192.168.1.1', vlan: 10, records: officeSubnet },
-        { id: '2', name: 'Data Center A', cidr: '10.0.50.0/24', gateway: '10.0.50.1', vlan: 50, records: serverSubnet }
+        { id: '1', name: 'HQ - Floor 1 (MOCK)', cidr: '192.168.1.0/24', gateway: '192.168.1.1', vlan: 10, records: officeSubnet }
       ];
   }
 };
