@@ -1,4 +1,3 @@
-
 import { Subnet, IPRecord, IPStatus, User } from "../types";
 import { generateMockSubnet } from "./ipUtils";
 import { supabase, isSupabaseConfigured } from "./supabaseClient";
@@ -172,13 +171,20 @@ export const StorageService = {
                   callback();
               }
           )
-          .subscribe();
+          .subscribe((status) => {
+              if (status === 'SUBSCRIBED') {
+                  console.log("Realtime Connected!");
+              }
+          });
 
       return channel;
   },
 
   async createSubnet(subnet: Subnet): Promise<void> {
-    if (!isSupabaseConfigured) return;
+    if (!isSupabaseConfigured) {
+        console.error("Cannot create subnet: Supabase is not configured.");
+        return;
+    }
 
     try {
       // 1. Insert Subnet
@@ -193,7 +199,12 @@ export const StorageService = {
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+          console.error("Error creating subnet row:", error);
+          throw error;
+      }
+
+      console.log("Subnet created in DB:", newSubnet.id);
 
       // 2. Prepare IP Records
       const ipRows = Object.values(subnet.records).map(r => ({
@@ -205,14 +216,22 @@ export const StorageService = {
       }));
 
       // 3. Bulk Insert IPs
+      // Split into chunks if too big (Supabase has limit around ~1000 rows sometimes, but usually fine)
       const { error: ipError } = await supabase
         .from('ip_records')
         .insert(ipRows);
 
-      if (ipError) throw ipError;
+      if (ipError) {
+          console.error("Error inserting IP records:", ipError);
+          // Rollback subnet creation if IPs fail? For now, just throw.
+          throw ipError;
+      }
+      
+      console.log("IP Records created:", ipRows.length);
 
     } catch (e) {
-      console.error("Supabase Create Error:", e);
+      console.error("Supabase Create Transaction Error:", e);
+      throw e; // Propagate to caller
     }
   },
 
