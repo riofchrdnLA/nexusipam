@@ -64,3 +64,21 @@ export const generateMockSubnet = (cidr: string, name: string): Record<string, I
   });
   return records;
 };
+
+// NEW: Generate a subnet where ALL IPs are Available (Clean Slate)
+export const generateEmptySubnet = (cidr: string): Record<string, IPRecord> => {
+  const ips = getIPRange(cidr);
+  const records: Record<string, IPRecord> = {};
+  
+  ips.forEach((ip) => {
+    records[ip] = {
+      ip,
+      status: IPStatus.AVAILABLE, // Always Available initially
+      hostname: undefined,
+      owner: undefined,
+      description: undefined,
+      lastUpdated: Date.now()
+    };
+  });
+  return records;
+};
