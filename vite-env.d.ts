@@ -1,17 +1,4 @@
-// Manually define the environment types as the vite/client types might be missing in this environment
-declare module '*.svg' {
-  import * as React from 'react';
-  export const ReactComponent: React.FunctionComponent<React.SVGProps<SVGSVGElement> & { title?: string }>;
-  const content: string;
-  export default content;
-}
-
-declare module '*.png';
-declare module '*.jpg';
-declare module '*.jpeg';
-declare module '*.gif';
-declare module '*.bmp';
-declare module '*.tiff';
+/// <reference types="vite/client" />
 
 declare namespace NodeJS {
   interface ProcessEnv {
