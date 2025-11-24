@@ -40,16 +40,14 @@ export const StorageService = {
                 password: 'password123',
             });
             
-            // CRITICAL FIX: Jika Sign Up juga gagal (misal validasi email ketat), 
-            // JANGAN return error. Tapi Fallback ke Local Mode agar user tetap bisa masuk dashboard.
+            // FAIL SAFE: Jika Sign Up juga gagal, Fallback ke Local Mode
             if (signUpError) {
                 console.warn("Supabase Auth failed (Email validation/Connection). Falling back to Local Mode.", signUpError);
-                return { user: mockUser, error: null }; // <-- FAIL SAFE RETURN
+                return { user: mockUser, error: null }; 
             }
             
             // Jika signup sukses
             if(signUpData.user) {
-                 // Coba ambil profile jika ada
                  const { data: profile } = await supabase
                     .from('profiles')
                     .select('*')
@@ -83,11 +81,9 @@ export const StorageService = {
              };
         }
         
-        // Fallback terakhir
         return { user: mockUser, error: null };
 
     } catch (e) {
-        // Jika terjadi error teknis parah (misal network down), tetap izinkan masuk
         console.error("Critical Auth Error, using Local Mode:", e);
         return { user: mockUser, error: null };
     }
@@ -104,7 +100,7 @@ export const StorageService = {
         .order('created_at', { ascending: true });
 
       if (subnetError) throw subnetError;
-      if (!subnetsData) return []; // Return empty if no subnets, DO NOT use mock data here
+      if (!subnetsData) return []; // Force empty if no data in DB
 
       // 2. Fetch All IPs
       const { data: ipData, error: ipError } = await supabase
@@ -139,18 +135,14 @@ export const StorageService = {
         };
       });
 
-      return result; // Pure DB result
+      return result;
 
     } catch (e) {
       console.error("Supabase Fetch Error:", e);
-      // Only fallback to mock data if there is a CRITICAL connection error, not just empty data
       return [];
     }
   },
 
-  /**
-   * Subscribe to Realtime changes on Subnets and IP Records
-   */
   subscribeToRealtime(callback: () => void) {
       if (!isSupabaseConfigured) return { unsubscribe: () => {} };
 
@@ -159,7 +151,7 @@ export const StorageService = {
               'postgres_changes',
               { event: '*', schema: 'public', table: 'subnets' },
               (payload) => {
-                  console.log('Subnet Change:', payload);
+                  console.log('Realtime Subnet Change:', payload);
                   callback();
               }
           )
@@ -167,13 +159,15 @@ export const StorageService = {
               'postgres_changes',
               { event: '*', schema: 'public', table: 'ip_records' },
               (payload) => {
-                  console.log('IP Change:', payload);
+                  console.log('Realtime IP Change:', payload);
                   callback();
               }
           )
           .subscribe((status) => {
               if (status === 'SUBSCRIBED') {
                   console.log("Realtime Connected!");
+              } else {
+                  console.log("Realtime Status:", status);
               }
           });
 
@@ -182,8 +176,7 @@ export const StorageService = {
 
   async createSubnet(subnet: Subnet): Promise<void> {
     if (!isSupabaseConfigured) {
-        console.error("Cannot create subnet: Supabase is not configured.");
-        return;
+        throw new Error("Cannot create subnet: Supabase is not configured.");
     }
 
     try {
@@ -209,29 +202,37 @@ export const StorageService = {
       // 2. Prepare IP Records
       const ipRows = Object.values(subnet.records).map(r => ({
           ip: r.ip,
-          subnet_id: newSubnet.id, // Use the real ID from DB
+          subnet_id: newSubnet.id, // Use real ID from DB
           status: r.status,
           hostname: r.hostname,
           last_updated: Date.now()
       }));
 
-      // 3. Bulk Insert IPs
-      // Split into chunks if too big (Supabase has limit around ~1000 rows sometimes, but usually fine)
-      const { error: ipError } = await supabase
-        .from('ip_records')
-        .insert(ipRows);
+      // 3. Batch Insert IPs (Chunking to avoid payload limits/timeouts)
+      // Supabase can fail with 504 or 413 if sending 254+ rows at once sometimes
+      const CHUNK_SIZE = 50; 
+      
+      if (ipRows.length > 0) {
+        for (let i = 0; i < ipRows.length; i += CHUNK_SIZE) {
+            const chunk = ipRows.slice(i, i + CHUNK_SIZE);
+            const { error: ipError } = await supabase
+                .from('ip_records')
+                .insert(chunk);
 
-      if (ipError) {
-          console.error("Error inserting IP records:", ipError);
-          // Rollback subnet creation if IPs fail? For now, just throw.
-          throw ipError;
+            if (ipError) {
+                console.error("Error inserting IP chunk:", ipError);
+                // Try to delete the partially created subnet to clean up? 
+                // For now, let's just throw to inform the user.
+                throw new Error(`Failed to insert IP records: ${ipError.message} (Duplicate IP or DB Error)`);
+            }
+        }
       }
       
-      console.log("IP Records created:", ipRows.length);
+      console.log("IP Records created successfully:", ipRows.length);
 
     } catch (e) {
       console.error("Supabase Create Transaction Error:", e);
-      throw e; // Propagate to caller
+      throw e; 
     }
   },
 
@@ -253,6 +254,7 @@ export const StorageService = {
          if (error) throw error;
      } catch (e) {
          console.error("Supabase Update Error:", e);
+         throw e;
      }
   },
 
@@ -260,13 +262,13 @@ export const StorageService = {
       if (!isSupabaseConfigured) return;
       
       const { error } = await supabase.from('subnets').delete().eq('id', subnetId);
-      if (error) console.error("Delete Error:", error);
+      if (error) {
+          console.error("Delete Error:", error);
+          throw error;
+      }
   },
 
   getMockData(): Subnet[] {
-      const officeSubnet = generateMockSubnet('192.168.1.0/24', 'HQ - Floor 1 (MOCK)');
-      return [
-        { id: '1', name: 'HQ - Floor 1 (MOCK)', cidr: '192.168.1.0/24', gateway: '192.168.1.1', vlan: 10, records: officeSubnet }
-      ];
+      return [];
   }
 };
