@@ -7,8 +7,8 @@ import { AIConsultant } from './components/AIConsultant';
 import { Subnet, User } from './types';
 import { generateMockSubnet } from './services/ipUtils';
 import { StorageService } from './services/storage';
-import { Shield, User as UserIcon, Lock, Database, Loader2, AlertCircle } from 'lucide-react';
-import { supabase } from './services/supabaseClient';
+import { Shield, User as UserIcon, Lock, Database, Loader2, AlertCircle, HardDrive } from 'lucide-react';
+import { isSupabaseConfigured } from './services/supabaseClient';
 
 const App: React.FC = () => {
   const [currentView, setCurrentView] = useState('dashboard');
@@ -77,7 +77,7 @@ const App: React.FC = () => {
     if (isLoading) return (
         <div className="flex h-full flex-col items-center justify-center text-cyan-400 space-y-4">
             <Loader2 className="animate-spin" size={48} />
-            <p className="text-slate-400 animate-pulse">Syncing with Supabase Database...</p>
+            <p className="text-slate-400 animate-pulse">Syncing with Database...</p>
         </div>
     );
 
@@ -106,10 +106,19 @@ const App: React.FC = () => {
                           <Lock className="text-cyan-400" size={48} />
                       </div>
                       <h1 className="text-3xl font-bold text-white tracking-wider mb-2">NEXUS<span className="text-cyan-400">IPAM</span></h1>
-                      <div className="flex items-center justify-center space-x-2 text-emerald-400 text-xs mt-2 bg-emerald-950/30 py-1 px-3 rounded-full border border-emerald-900/50 inline-flex">
-                        <Database size={12} />
-                        <span>Supabase PostgreSQL Connected</span>
-                      </div>
+                      
+                      {/* Connection Status Indicator */}
+                      {isSupabaseConfigured ? (
+                        <div className="flex items-center justify-center space-x-2 text-emerald-400 text-xs mt-2 bg-emerald-950/30 py-1 px-3 rounded-full border border-emerald-900/50 inline-flex">
+                            <Database size={12} />
+                            <span>Supabase DB Connected</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-center space-x-2 text-orange-400 text-xs mt-2 bg-orange-950/30 py-1 px-3 rounded-full border border-orange-900/50 inline-flex">
+                            <HardDrive size={12} />
+                            <span>Local Mode (Demo)</span>
+                        </div>
+                      )}
                   </div>
 
                   <div className="space-y-4">
