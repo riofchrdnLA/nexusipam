@@ -7,7 +7,7 @@ import { AIConsultant } from './components/AIConsultant';
 import { Subnet, User } from './types';
 import { generateMockSubnet } from './services/ipUtils';
 import { StorageService } from './services/storage';
-import { Shield, User as UserIcon, Lock, Database, Loader2, AlertCircle, HardDrive } from 'lucide-react';
+import { Shield, User as UserIcon, Lock, Database, Loader2, AlertCircle, HardDrive, Wifi } from 'lucide-react';
 import { isSupabaseConfigured } from './services/supabaseClient';
 
 const App: React.FC = () => {
@@ -15,22 +15,41 @@ const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [subnets, setSubnets] = useState<Subnet[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   
   // Login State
   const [email, setEmail] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
 
-  // Load Data on Mount or User Change
+  // Load Data Function
+  const loadData = async () => {
+    setIsSyncing(true);
+    const data = await StorageService.getAllSubnets();
+    setSubnets(data);
+    setIsSyncing(false);
+    setIsLoading(false);
+  };
+
+  // Initial Data Load
   useEffect(() => {
     if (currentUser) {
-        const loadData = async () => {
         setIsLoading(true);
-        const data = await StorageService.getAllSubnets();
-        setSubnets(data);
-        setIsLoading(false);
-        };
         loadData();
+    }
+  }, [currentUser]);
+
+  // Realtime Subscription
+  useEffect(() => {
+    if (currentUser && isSupabaseConfigured) {
+        const channel = StorageService.subscribeToRealtime(() => {
+            console.log("Realtime update received, reloading data...");
+            loadData();
+        });
+
+        return () => {
+            channel.unsubscribe();
+        };
     }
   }, [currentUser]);
 
@@ -66,9 +85,11 @@ const App: React.FC = () => {
     // Save to DB
     await StorageService.createSubnet(newSubnet);
     
-    // Reload to get real ID from DB
-    const updatedData = await StorageService.getAllSubnets();
-    setSubnets(updatedData);
+    // Reload will be handled by Realtime subscription or manually
+    if (!isSupabaseConfigured) {
+        const updatedData = await StorageService.getAllSubnets();
+        setSubnets(updatedData);
+    }
     setCurrentView('subnets');
   };
 
@@ -109,9 +130,15 @@ const App: React.FC = () => {
                       
                       {/* Connection Status Indicator */}
                       {isSupabaseConfigured ? (
-                        <div className="flex items-center justify-center space-x-2 text-emerald-400 text-xs mt-2 bg-emerald-950/30 py-1 px-3 rounded-full border border-emerald-900/50 inline-flex">
-                            <Database size={12} />
-                            <span>Supabase DB Connected</span>
+                        <div className="flex items-center justify-center space-x-4 mt-4">
+                            <div className="flex items-center space-x-2 text-emerald-400 text-xs bg-emerald-950/30 py-1 px-3 rounded-full border border-emerald-900/50">
+                                <Database size={12} />
+                                <span>DB Connected</span>
+                            </div>
+                            <div className="flex items-center space-x-2 text-cyan-400 text-xs bg-cyan-950/30 py-1 px-3 rounded-full border border-cyan-900/50">
+                                <Wifi size={12} className="animate-pulse" />
+                                <span>Realtime Ready</span>
+                            </div>
                         </div>
                       ) : (
                         <div className="flex items-center justify-center space-x-2 text-orange-400 text-xs mt-2 bg-orange-950/30 py-1 px-3 rounded-full border border-orange-900/50 inline-flex">
@@ -184,6 +211,12 @@ const App: React.FC = () => {
             backgroundImage: 'linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px)',
             backgroundSize: '40px 40px'
         }}></div>
+        
+        {isSyncing && (
+             <div className="absolute top-4 right-4 bg-cyan-900/30 text-cyan-400 px-3 py-1 rounded-full text-xs flex items-center gap-2 border border-cyan-500/30 z-50">
+                <Wifi size={12} className="animate-pulse" /> Updating...
+             </div>
+        )}
         
         {renderView()}
       </main>
