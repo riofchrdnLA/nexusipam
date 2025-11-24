@@ -15,13 +15,14 @@ export const longToIp = (long: number): string => {
   ].join('.');
 };
 
-// Parse CIDR to get range (Simplified for demo, works best with /24, /23 etc)
+// Parse CIDR to get range (Expanded to support /22)
 export const getIPRange = (cidr: string): string[] => {
   const [ip, maskStr] = cidr.split('/');
   const mask = parseInt(maskStr, 10);
   
-  if (isNaN(mask) || mask < 24 || mask > 32) {
-    // For this visual demo, we restrict to smaller subnets to avoid browser freezing on huge arrays
+  // Allow down to /22 (1024 IPs) for this demo. 
+  // Larger subnets might cause performance issues in the grid view without virtualization.
+  if (isNaN(mask) || mask < 22 || mask > 32) {
     return [];
   }
 
