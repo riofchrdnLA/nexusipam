@@ -1,8 +1,7 @@
-
 import React, { useState, useMemo } from 'react';
 import { Subnet, IPRecord, IPStatus, User } from '../types';
 import { IPGrid } from './IPGrid';
-import { generateMockSubnet, isValidCIDR } from '../services/ipUtils';
+import { generateEmptySubnet, isValidCIDR } from '../services/ipUtils';
 import { StorageService } from '../services/storage';
 import { Plus, Search, Map, List, Save, Trash2, X, Lock, Eye, Loader2, Database, Network } from 'lucide-react';
 
@@ -62,10 +61,14 @@ export const SubnetManager: React.FC<SubnetManagerProps> = ({ subnets, setSubnet
     }
     
     setIsSaving(true);
-    const records = generateMockSubnet(newSubnetData.cidr, newSubnetData.name);
+    // Use generateEmptySubnet to ensure all IPs are AVAILABLE
+    const records = generateEmptySubnet(newSubnetData.cidr);
     
+    // Temporary ID for optimistic UI, will be ignored by DB insert logic
+    const tempId = Date.now().toString();
+
     const newSubnet: Subnet = {
-      id: Date.now().toString(),
+      id: tempId,
       name: newSubnetData.name,
       cidr: newSubnetData.cidr,
       gateway: newSubnetData.cidr.split('/')[0],
@@ -73,15 +76,19 @@ export const SubnetManager: React.FC<SubnetManagerProps> = ({ subnets, setSubnet
       records
     };
 
-    // Save to DB
-    await StorageService.createSubnet(newSubnet);
-
-    // Optimistic update - Realtime will confirm later
-    setSubnets([...subnets, newSubnet]);
-    setShowAddModal(false);
-    setNewSubnetData({ name: '', cidr: '', vlan: '' });
-    setSelectedSubnetId(newSubnet.id);
-    setIsSaving(false);
+    try {
+        // Save to DB
+        await StorageService.createSubnet(newSubnet);
+        // Note: We don't manually setSubnets here because the Realtime Subscription in App.tsx 
+        // will automatically fetch the new valid data from DB.
+        setShowAddModal(false);
+        setNewSubnetData({ name: '', cidr: '', vlan: '' });
+    } catch (error) {
+        console.error("Failed to create subnet:", error);
+        alert("Failed to create subnet. Please check console.");
+    } finally {
+        setIsSaving(false);
+    }
   };
 
   const handleUpdateIP = async (updatedRecord: IPRecord) => {
